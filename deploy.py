@@ -641,7 +641,7 @@ if __name__ == '__main__':
             self.deployed_port = port
             
             # Gera subdomínio baseado no nome do projeto
-            subdomain = "api "#self.project_name.lower()
+            subdomain = "api"#self.project_name.lower()
             self.deployed_domain = f"{subdomain}.{self.domain}"
             
             print(f"\n🚀 Iniciando deploy na VPS...")

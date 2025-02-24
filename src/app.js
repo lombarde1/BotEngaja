@@ -130,7 +130,7 @@ process.on('SIGTERM', () => {
     });
 });
 
-const PORT = process.env.PORT || 8605;
+const PORT = process.env.PORT || 8652;
 require('./services/BotManager');
 
 const server = app.listen(PORT, () => {
