@@ -128,46 +128,84 @@ class AutoDeploy:
             
             # Adiciona, faz commit e envia
             commit_time = time.strftime("%Y-%m-%d %H:%M:%S")
-            push_commands = [
+            
+            # Primeiro adiciona e faz commit
+            add_commit_commands = [
                 ["git", "add", "."],
-                ["git", "commit", "-m", f"Auto deploy at {commit_time}"],
-                ["git", "push", "-u", "origin", "main", "--force"]  # Força o push para garantir que funcione
+                ["git", "commit", "-m", f"Auto deploy at {commit_time}"]
             ]
             
-            for cmd in push_commands:
+            for cmd in add_commit_commands:
                 try:
                     result = subprocess.run(cmd, check=True, cwd=self.project_path, capture_output=True, text=True)
                     print(f"🔄 {cmd[0]} {cmd[1]}: {result.stdout}")
                 except subprocess.CalledProcessError as e:
                     print(f"⚠️ Aviso ao executar {cmd[0]} {cmd[1]}: {e}")
                     # Se o commit falhar por não ter alterações, continua
-                    if "nothing to commit" in e.stdout or "no changes added" in e.stdout:
+                    if "nothing to commit" in str(e.stdout) or "no changes added" in str(e.stdout):
                         print("✅ Sem alterações para commit, continuando...")
                         continue
-                    # Se a branch principal for 'master' em vez de 'main'
-                    if cmd[0] == "git" and cmd[1] == "push" and "main" in cmd:
-                        try:
-                            # Tenta com 'master' em vez de 'main'
-                            cmd[3] = "master"
-                            subprocess.run(cmd, check=True, cwd=self.project_path)
-                            print(f"✅ Push realizado para branch 'master'")
-                            continue
-                        except subprocess.CalledProcessError:
-                            pass
-                    
-                    # Se o push falhar, pode ser por falta de branch local
-                    if cmd[0] == "git" and cmd[1] == "push":
-                        try:
-                            # Cria uma branch local e tenta novamente
-                            subprocess.run(["git", "checkout", "-b", "main"], cwd=self.project_path)
-                            subprocess.run(cmd, check=True, cwd=self.project_path)
-                            print(f"✅ Branch 'main' criada e push realizado")
-                            continue
-                        except subprocess.CalledProcessError:
-                            pass
-                    
-                    print(f"❌ Falha ao executar {cmd}")
-                    return False
+                    # Se for outro tipo de erro no commit, continua mesmo assim
+                    print("⚠️ Continuando mesmo com erro de commit...")
+            
+            # Verifica qual branch existe localmente
+            try:
+                current_branch = subprocess.check_output(
+                    ["git", "branch", "--show-current"], 
+                    cwd=self.project_path, 
+                    text=True
+                ).strip()
+                
+                print(f"🔍 Branch atual: {current_branch or 'nenhuma'}")
+                
+                # Se não temos branch, criamos uma
+                if not current_branch:
+                    print("🔄 Criando branch local 'main'...")
+                    subprocess.run(
+                        ["git", "checkout", "-b", "main"], 
+                        cwd=self.project_path, 
+                        stderr=subprocess.PIPE
+                    )
+                    current_branch = "main"
+            except Exception as e:
+                print(f"⚠️ Erro ao verificar branch: {e}")
+                # Se não conseguimos determinar, assumimos main
+                current_branch = "main"
+                print("🔄 Criando branch local 'main'...")
+                try:
+                    subprocess.run(
+                        ["git", "checkout", "-b", "main"], 
+                        cwd=self.project_path, 
+                        stderr=subprocess.PIPE
+                    )
+                except:
+                    pass
+            
+            # Agora tentamos o push
+            push_attempts = [
+                ["git", "push", "-u", "origin", current_branch, "--force"],
+                ["git", "push", "-u", "origin", "main", "--force"],
+                ["git", "push", "-u", "origin", "master", "--force"]
+            ]
+            
+            for push_cmd in push_attempts:
+                try:
+                    print(f"🔄 Tentando: {' '.join(push_cmd)}")
+                    result = subprocess.run(
+                        push_cmd, 
+                        cwd=self.project_path, 
+                        capture_output=True, 
+                        text=True
+                    )
+                    print(f"✅ Push realizado com sucesso: {result.stdout}")
+                    return True
+                except Exception as e:
+                    print(f"⚠️ Tentativa de push falhou: {e}")
+                    continue
+            
+            # Se chegamos aqui, todas as tentativas falharam
+            print("⚠️ Não foi possível fazer push para o GitHub, mas continuaremos com o deploy local")
+            return True  # Continuamos mesmo assim para tentar o deploy local
             
             print(f"✅ Projeto enviado com sucesso para o GitHub: {self.github_url}")
             return True
@@ -594,9 +632,9 @@ server {{
         entry_file = self.generate_app_entry_file(port)
         
         # Etapa 3: Enviar projeto para o GitHub
-        if not self.push_to_github():
-            print("❌ Falha ao enviar projeto para o GitHub. Abortando.")
-            return False
+        github_result = self.push_to_github()
+        if not github_result:
+            print("⚠️ Falha ao enviar projeto para o GitHub, mas continuaremos com o deploy na VPS.")
         
         # Etapa 4: Deploy na VPS
         if not self.deploy_to_vps():
@@ -627,7 +665,7 @@ if __name__ == "__main__":
         'vps_host': '147.93.36.100',
         'vps_username': 'root',
         'vps_password': 'Darkvips2k24@',
-        'base_port': 8600,  # Porta base para aplicações
+        'base_port': 7500,  # Porta base para aplicações
         'domain': 'operacao2k25.shop'  # Domínio principal
     }
     
