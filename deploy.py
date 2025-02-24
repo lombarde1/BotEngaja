@@ -875,7 +875,7 @@ if __name__ == "__main__":
         'vps_host': '147.93.36.100',
         'vps_username': 'root',
         'vps_password': 'Darkvips2k24@',
-        'base_port': 8600,  # Porta base para aplicações
+        'base_port': 8652,  # Porta base para aplicações
         'domain': 'botengaja.cloud'  # Domínio principal
     }
     
