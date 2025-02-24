@@ -311,7 +311,99 @@ class AutoDeploy:
 
     def is_node_project(self) -> bool:
         """Verifica se o projeto atual é um projeto Node.js"""
-        return os.path.exists(os.path.join(self.project_path, 'package.json'))
+        # Verifica package.json na raiz
+        if os.path.exists(os.path.join(self.project_path, 'package.json')):
+            return True
+            
+        # Verifica se existe uma pasta src com arquivos js
+        src_path = os.path.join(self.project_path, 'src')
+        if os.path.exists(src_path) and os.path.isdir(src_path):
+            for file in os.listdir(src_path):
+                if file.endswith('.js'):
+                    return True
+                    
+        return False
+
+    def find_main_entry_file(self) -> Optional[tuple]:
+        """
+        Encontra o arquivo principal de entrada do projeto.
+        Retorna uma tupla (caminho_relativo, caminho_absoluto) ou None se não encontrar.
+        """
+        # Lista de possíveis arquivos de entrada para Node.js
+        node_entry_files = [
+            'app.js', 'server.js', 'index.js', 'main.js', 'src/app.js', 
+            'src/server.js', 'src/index.js', 'src/main.js'
+        ]
+        
+        # Lista de possíveis arquivos de entrada para Python
+        python_entry_files = [
+            'app.py', 'main.py', 'src/app.py', 'src/main.py'
+        ]
+        
+        # Primeiro procura em node_entry_files se for um projeto Node.js
+        if self.is_node_project():
+            for entry_file in node_entry_files:
+                abs_path = os.path.join(self.project_path, entry_file)
+                if os.path.exists(abs_path):
+                    return (entry_file, abs_path)
+                    
+            # Procura por um script "start" no package.json
+            package_path = os.path.join(self.project_path, 'package.json')
+            if os.path.exists(package_path):
+                try:
+                    import json
+                    with open(package_path, 'r') as f:
+                        package_data = json.load(f)
+                    
+                    if 'scripts' in package_data and 'start' in package_data['scripts']:
+                        start_script = package_data['scripts']['start']
+                        # Extrai o nome do arquivo do comando start
+                        # Ex: "node src/app.js" -> "src/app.js"
+                        if 'node' in start_script:
+                            parts = start_script.split('node')
+                            if len(parts) > 1:
+                                file_path = parts[1].strip()
+                                abs_path = os.path.join(self.project_path, file_path)
+                                if os.path.exists(abs_path):
+                                    return (file_path, abs_path)
+                except Exception as e:
+                    print(f"⚠️ Erro ao ler package.json: {e}")
+        
+        # Procura em python_entry_files se for um projeto Python
+        elif self.is_python_project():
+            for entry_file in python_entry_files:
+                abs_path = os.path.join(self.project_path, entry_file)
+                if os.path.exists(abs_path):
+                    return (entry_file, abs_path)
+        
+        # Se ainda não encontrou, procura recursivamente por arquivos que pareçam ser o ponto de entrada
+        for root, _, files in os.walk(self.project_path):
+            for file in files:
+                # Pula node_modules e arquivos ocultos
+                if 'node_modules' in root or file.startswith('.'):
+                    continue
+                    
+                # Verifica por padrões comuns em arquivos de entrada
+                if file.endswith('.js'):
+                    abs_path = os.path.join(root, file)
+                    with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                        if ('express' in content and 
+                            ('app.listen' in content or 'server.listen' in content)):
+                            rel_path = os.path.relpath(abs_path, self.project_path)
+                            return (rel_path, abs_path)
+                
+                # Para Python
+                elif file.endswith('.py'):
+                    abs_path = os.path.join(root, file)
+                    with open(abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read()
+                        if ('flask' in content.lower() and 'app.run' in content.lower() or
+                            'fastapi' in content.lower()):
+                            rel_path = os.path.relpath(abs_path, self.project_path)
+                            return (rel_path, abs_path)
+        
+        return None
 
     def is_python_project(self) -> bool:
         """Verifica se o projeto atual é um projeto Python"""
@@ -321,46 +413,120 @@ class AutoDeploy:
 
     def generate_app_entry_file(self, port: int) -> Optional[str]:
         """Gera ou atualiza o arquivo de entrada da aplicação com a porta correta"""
-        if self.is_node_project():
-            # Para projeto Node.js, procura app.js ou server.js
-            entry_files = ['app.js', 'server.js', 'index.js']
-            
-            for entry_file in entry_files:
-                entry_path = os.path.join(self.project_path, entry_file)
-                if os.path.exists(entry_path):
-                    try:
-                        with open(entry_path, 'r') as f:
-                            content = f.read()
-                        
-                        # Procura por definição de porta e atualiza
-                        if 'process.env.PORT' in content:
-                            content = re.sub(r'process\.env\.PORT\s*\|\|\s*\d+', f'process.env.PORT || {port}', content)
-                        else:
-                            # Adiciona definição de porta se não existir
-                            port_definition = f"const port = process.env.PORT || {port};\n"
-                            listen_statement = f"app.listen(port, () => console.log(`Server running on port ${port}`));\n"
-                            
-                            if 'express' in content and 'app.listen' not in content:
-                                content += '\n' + listen_statement
-                            elif 'http.createServer' in content:
-                                content = content.replace('http.createServer', 
-                                                         port_definition + 'http.createServer')
-                        
-                        with open(entry_path, 'w') as f:
-                            f.write(content)
-                        
-                        print(f"✅ Arquivo {entry_file} atualizado com porta {port}")
-                        return entry_file
-                    except Exception as e:
-                        print(f"⚠️ Erro ao atualizar {entry_file}: {e}")
-            
-            # Se não encontrou nenhum arquivo de entrada, cria um app.js básico
-            entry_file = 'app.js'
-            entry_path = os.path.join(self.project_path, entry_file)
+        # Primeiro, tenta encontrar o arquivo de entrada existente
+        entry_info = self.find_main_entry_file()
+        
+        if entry_info:
+            entry_rel_path, entry_abs_path = entry_info
+            print(f"✅ Arquivo de entrada encontrado: {entry_rel_path}")
             
             try:
-                with open(entry_path, 'w') as f:
-                    f.write(f"""const express = require('express');
+                with open(entry_abs_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                
+                # Procura por definição de porta e atualiza
+                is_updated = False
+                
+                if self.is_node_project():
+                    # Padrões para Node.js
+                    port_patterns = [
+                        (r'process\.env\.PORT\s*\|\|\s*\d+', f'process.env.PORT || {port}'),
+                        (r'const\s+port\s*=\s*\d+', f'const port = {port}'),
+                        (r'let\s+port\s*=\s*\d+', f'let port = {port}'),
+                        (r'var\s+port\s*=\s*\d+', f'var port = {port}'),
+                        (r'\.listen\(\s*\d+', f'.listen({port}')
+                    ]
+                    
+                    updated_content = content
+                    for pattern, replacement in port_patterns:
+                        if re.search(pattern, updated_content):
+                            updated_content = re.sub(pattern, replacement, updated_content)
+                            is_updated = True
+                    
+                    # Adiciona definição de porta se não existir
+                    if not is_updated and 'express' in content:
+                        # Verifica se já existe uso de app.listen sem porta explícita
+                        if re.search(r'app\.listen\(\s*\)', updated_content):
+                            updated_content = re.sub(
+                                r'app\.listen\(\s*\)',
+                                f'app.listen({port})',
+                                updated_content
+                            )
+                        elif not re.search(r'app\.listen\(', updated_content):
+                            # Adiciona ao final do arquivo
+                            updated_content += f"\n\napp.listen({port}, () => console.log(`Server running on port {port}`));\n"
+                        
+                        is_updated = True
+                
+                elif self.is_python_project():
+                    # Padrões para Python
+                    if 'flask' in content.lower():
+                        port_patterns = [
+                            (r'port\s*=\s*\d+', f'port = {port}'),
+                            (r'\.run\(.*port=\d+', f'.run(port={port}'),
+                            (r'\.run\(\s*\)', f'.run(host="0.0.0.0", port={port})')
+                        ]
+                        
+                        updated_content = content
+                        for pattern, replacement in port_patterns:
+                            if re.search(pattern, updated_content):
+                                updated_content = re.sub(pattern, replacement, updated_content)
+                                is_updated = True
+                        
+                        # Adiciona definição de porta se não existir
+                        if not is_updated and '.run(' in content:
+                            updated_content = re.sub(
+                                r'\.run\(',
+                                f'.run(host="0.0.0.0", port={port}, ',
+                                updated_content
+                            )
+                            is_updated = True
+                    
+                    elif 'fastapi' in content.lower():
+                        # Para FastAPI
+                        if 'uvicorn.run(' in content:
+                            updated_content = re.sub(
+                                r'uvicorn\.run\(.*?,\s*port=\d+',
+                                f'uvicorn.run(app, port={port}',
+                                content
+                            )
+                            is_updated = True
+                
+                # Se houve alterações, salva o arquivo
+                if is_updated:
+                    with open(entry_abs_path, 'w', encoding='utf-8') as f:
+                        f.write(updated_content)
+                    print(f"✅ Arquivo {entry_rel_path} atualizado com porta {port}")
+                    return entry_rel_path
+                else:
+                    print(f"⚠️ Não foi possível atualizar a porta no arquivo {entry_rel_path}")
+                    return entry_rel_path  # Retorna o arquivo mesmo sem alterações
+                    
+            except Exception as e:
+                print(f"⚠️ Erro ao atualizar arquivo de entrada: {e}")
+        
+        # Se não encontrou ou não conseguiu atualizar um arquivo existente
+        
+        if self.is_node_project():
+            # Para projetos Node.js, verifica se já existe uma pasta src
+            src_path = os.path.join(self.project_path, 'src')
+            if os.path.exists(src_path) and os.path.isdir(src_path):
+                # Cria um app.js dentro da pasta src
+                entry_file = 'src/app.js'
+                entry_path = os.path.join(self.project_path, entry_file)
+            else:
+                # Cria um app.js na raiz
+                entry_file = 'app.js'
+                entry_path = os.path.join(self.project_path, entry_file)
+            
+            # Verifica se já existe package.json
+            has_package = os.path.exists(os.path.join(self.project_path, 'package.json'))
+            
+            try:
+                # Só cria um novo arquivo se não existir
+                if not os.path.exists(entry_path):
+                    with open(entry_path, 'w') as f:
+                        f.write(f"""const express = require('express');
 const app = express();
 const port = process.env.PORT || {port};
 
@@ -374,24 +540,48 @@ app.listen(port, () => {{
   console.log(`Server running on port ${{port}}`);
 }});
 """)
-                print(f"✅ Arquivo {entry_file} criado com porta {port}")
+                    print(f"✅ Arquivo {entry_file} criado com porta {port}")
                 
-                # Adiciona express às dependências se não estiver no package.json
-                package_path = os.path.join(self.project_path, 'package.json')
-                if os.path.exists(package_path):
+                # Adiciona express às dependências se não tiver package.json
+                if not has_package:
+                    package_path = os.path.join(self.project_path, 'package.json')
+                    with open(package_path, 'w') as f:
+                        f.write(f"""{{
+  "name": "{self.project_name}",
+  "version": "1.0.0",
+  "description": "Auto-generated package.json",
+  "main": "{entry_file}",
+  "scripts": {{
+    "start": "node {entry_file}"
+  }},
+  "dependencies": {{
+    "express": "^4.18.2"
+  }}
+}}
+""")
+                    print("📦 Arquivo package.json criado com dependência express")
+                else:
+                    # Atualiza package.json existente com script de start
                     try:
+                        package_path = os.path.join(self.project_path, 'package.json')
                         import json
                         with open(package_path, 'r') as f:
                             package_data = json.load(f)
                         
-                        dependencies = package_data.get('dependencies', {})
-                        if 'express' not in dependencies:
-                            print("📦 Adicionando express às dependências...")
-                            dependencies['express'] = '^4.18.2'
-                            package_data['dependencies'] = dependencies
-                            
-                            with open(package_path, 'w') as f:
-                                json.dump(package_data, f, indent=2)
+                        # Adiciona ou atualiza script de start
+                        if 'scripts' not in package_data:
+                            package_data['scripts'] = {}
+                        package_data['scripts']['start'] = f"node {entry_file}"
+                        
+                        # Adiciona express se não estiver nas dependências
+                        if 'dependencies' not in package_data:
+                            package_data['dependencies'] = {}
+                        if 'express' not in package_data['dependencies']:
+                            package_data['dependencies']['express'] = '^4.18.2'
+                        
+                        with open(package_path, 'w') as f:
+                            json.dump(package_data, f, indent=2)
+                        print("📦 package.json atualizado com script de start e dependência express")
                     except Exception as e:
                         print(f"⚠️ Erro ao atualizar package.json: {e}")
                 
@@ -400,37 +590,20 @@ app.listen(port, () => {{
                 print(f"⚠️ Erro ao criar arquivo de entrada: {e}")
         
         elif self.is_python_project():
-            # Para projeto Python, procura app.py ou main.py
-            entry_files = ['app.py', 'main.py']
-            
-            for entry_file in entry_files:
+            # Para projetos Python
+            src_path = os.path.join(self.project_path, 'src')
+            if os.path.exists(src_path) and os.path.isdir(src_path):
+                entry_file = 'src/app.py'
                 entry_path = os.path.join(self.project_path, entry_file)
-                if os.path.exists(entry_path):
-                    try:
-                        with open(entry_path, 'r') as f:
-                            content = f.read()
-                        
-                        # Procura por definição de porta e atualiza
-                        if 'port =' in content:
-                            content = re.sub(r'port\s*=\s*\d+', f'port = {port}', content)
-                        elif '.run(' in content:
-                            content = re.sub(r'\.run\(.*port=\d+', f'.run(port={port}', content)
-                        
-                        with open(entry_path, 'w') as f:
-                            f.write(content)
-                        
-                        print(f"✅ Arquivo {entry_file} atualizado com porta {port}")
-                        return entry_file
-                    except Exception as e:
-                        print(f"⚠️ Erro ao atualizar {entry_file}: {e}")
-            
-            # Se não encontrou nenhum arquivo de entrada, cria um app.py básico
-            entry_file = 'app.py'
-            entry_path = os.path.join(self.project_path, entry_file)
+            else:
+                entry_file = 'app.py'
+                entry_path = os.path.join(self.project_path, entry_file)
             
             try:
-                with open(entry_path, 'w') as f:
-                    f.write(f"""from flask import Flask
+                # Só cria um novo arquivo se não existir
+                if not os.path.exists(entry_path):
+                    with open(entry_path, 'w') as f:
+                        f.write(f"""from flask import Flask
 
 app = Flask(__name__)
 
@@ -441,7 +614,7 @@ def hello():
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port={port})
 """)
-                print(f"✅ Arquivo {entry_file} criado com porta {port}")
+                    print(f"✅ Arquivo {entry_file} criado com porta {port}")
                 
                 # Cria requirements.txt se não existir
                 requirements_path = os.path.join(self.project_path, 'requirements.txt')
@@ -468,7 +641,7 @@ if __name__ == '__main__':
             self.deployed_port = port
             
             # Gera subdomínio baseado no nome do projeto
-            subdomain = "api" #self.project_name.lower()
+            subdomain = "api "#self.project_name.lower()
             self.deployed_domain = f"{subdomain}.{self.domain}"
             
             print(f"\n🚀 Iniciando deploy na VPS...")
@@ -508,11 +681,48 @@ if __name__ == '__main__':
                 
                 # Configura PM2
                 print("🔄 Configurando PM2...")
-                pm2_command = f"""
-                cd /var/www/{self.project_name} && \
-                pm2 delete {self.project_name} 2>/dev/null || true && \
-                pm2 start app.js --name {self.project_name}
-                """
+                
+                # Primeiro, identifica o arquivo de entrada principal
+                entry_info = self.find_main_entry_file()
+                if entry_info:
+                    entry_rel_path, _ = entry_info
+                    
+                    if entry_rel_path.endswith('.js'):
+                        # Para aplicações Node.js
+                        print(f"📄 Usando arquivo de entrada: {entry_rel_path}")
+                        pm2_command = f"""
+                        cd /var/www/{self.project_name} && \
+                        pm2 delete {self.project_name} 2>/dev/null || true && \
+                        pm2 start {entry_rel_path} --name {self.project_name}
+                        """
+                    else:
+                        # Tenta o script start no package.json
+                        pm2_command = f"""
+                        cd /var/www/{self.project_name} && \
+                        pm2 delete {self.project_name} 2>/dev/null || true && \
+                        pm2 start npm --name {self.project_name} -- start
+                        """
+                else:
+                    # Tenta com os nomes de arquivo padrão
+                    pm2_command = f"""
+                    cd /var/www/{self.project_name} && \
+                    pm2 delete {self.project_name} 2>/dev/null || true && \
+                    if [ -f "src/app.js" ]; then
+                        pm2 start src/app.js --name {self.project_name}
+                    elif [ -f "src/server.js" ]; then
+                        pm2 start src/server.js --name {self.project_name}
+                    elif [ -f "src/index.js" ]; then
+                        pm2 start src/index.js --name {self.project_name}
+                    elif [ -f "app.js" ]; then
+                        pm2 start app.js --name {self.project_name}
+                    elif [ -f "server.js" ]; then
+                        pm2 start server.js --name {self.project_name}
+                    elif [ -f "index.js" ]; then
+                        pm2 start index.js --name {self.project_name}
+                    else
+                        pm2 start npm --name {self.project_name} -- start
+                    fi
+                    """
                 if not self.run_vps_command(pm2_command):
                     # Tenta com diferentes arquivos de entrada
                     for entry_file in ['server.js', 'index.js']:
@@ -665,8 +875,8 @@ if __name__ == "__main__":
         'vps_host': '147.93.36.100',
         'vps_username': 'root',
         'vps_password': 'Darkvips2k24@',
-        'base_port': 7500,  # Porta base para aplicações
-        'domain': 'operacao2k25.shop'  # Domínio principal
+        'base_port': 8600,  # Porta base para aplicações
+        'domain': 'botengaja.cloud'  # Domínio principal
     }
     
     # Verifica argumentos da linha de comando
