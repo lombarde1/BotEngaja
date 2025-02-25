@@ -1,15 +1,6 @@
 // src/utils/messageUtils.js
-/**
- * Módulo utilitário para processamento de mensagens e variáveis
- * que será compartilhado entre BotManager e SmartRemarketingService
- */
 
-/**
- * Processa variáveis em um texto usando o contexto fornecido
- * @param {string} text - Texto com variáveis para substituir
- * @param {Object} context - Contexto com valores para substituição
- * @returns {string} - Texto processado
- */
+// Função para processar variáveis em texto
 exports.processVariables = async function(text, context) {
     if (!text) return text;
 
@@ -37,12 +28,12 @@ exports.processVariables = async function(text, context) {
     // Mapeamento de variáveis
     const variables = {
         // Usuário
-        '{user.name}': `${user.first_name || ''} ${user.last_name || ''}`.trim(),
-        '{user.first_name}': user.first_name || '',
-        '{user.last_name}': user.last_name || '',
+        '{user.name}': `${user.first_name || user.firstName || ''} ${user.last_name || user.lastName || ''}`.trim(),
+        '{user.first_name}': user.first_name || user.firstName || '',
+        '{user.last_name}': user.last_name || user.lastName || '',
         '{user.username}': user.username ? `@${user.username}` : '',
-        '{user.id}': user.id.toString(),
-        '{user.language}': user.language_code || 'pt',
+        '{user.id}': (user.id || user.telegramId || '').toString(),
+        '{user.language}': user.language_code || user.languageCode || 'pt',
 
         // Chat/Grupo
         '{chat.name}': chat.title || chat.first_name || '',
@@ -53,9 +44,9 @@ exports.processVariables = async function(text, context) {
         '{chat.invite_link}': chat.invite_link || '',
 
         // Bot
-        '{bot.name}': bot.first_name || '',
-        '{bot.username}': `@${bot.username}` || '',
-        '{bot.link}': `https://t.me/${bot.username}` || '',
+        '{bot.name}': bot?.first_name || '',
+        '{bot.username}': bot?.username ? `@${bot.username}` : '',
+        '{bot.link}': bot?.username ? `https://t.me/${bot.username}` : '',
 
         // Data/Hora
         '{date.full}': dateFormatter.format(now),
@@ -87,15 +78,16 @@ exports.processVariables = async function(text, context) {
     return processedText;
 };
 
-/**
- * Prepara botões para mensagens Telegram
- * @param {Array} buttons - Array de objetos de botão
- * @returns {Array} - Array formatado para o Telegram
- */
+// Função para preparar botões inline
 exports.prepareButtons = function(buttons) {
+    if (!buttons || !buttons.length) {
+        return [];
+    }
+
+    // Organiza os botões em linhas (2 botões por linha)
     const keyboard = [];
     const buttonsPerRow = 2;
-
+    
     for (let i = 0; i < buttons.length; i += buttonsPerRow) {
         const row = buttons.slice(i, i + buttonsPerRow).map(btn => {
             if (btn.type === 'url') {
@@ -121,21 +113,14 @@ exports.prepareButtons = function(buttons) {
     return keyboard;
 };
 
-/**
- * Envia uma mensagem baseada no tipo de passo
- * @param {Object} ctx - Contexto do Telegram
- * @param {Object} step - Configuração do passo
- * @param {Object} processedContent - Conteúdo processado
- * @param {Object} options - Opções adicionais
- * @returns {Object} - Mensagem enviada
- */
+// Função para enviar mensagem baseada no tipo
 exports.sendStepMessage = async function(ctx, step, processedContent, options) {
     try {
         let sentMessage;
         
         switch (step.type) {
             case 'text':
-                sentMessage = await ctx.reply(processedContent.text, options);
+                sentMessage = await ctx.telegram.sendMessage(ctx.chat.id, processedContent.text, options);
                 break;
             case 'photo':
                 sentMessage = await ctx.telegram.sendPhoto(
@@ -187,8 +172,6 @@ exports.sendStepMessage = async function(ctx, step, processedContent, options) {
                     options
                 );
                 break;
-            default:
-                return null;
         }
         
         return sentMessage;

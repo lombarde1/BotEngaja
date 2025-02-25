@@ -8,8 +8,8 @@ const WelcomeConfig = require('../models/WelcomeConfig');
 const Flow = require('../models/Flow');
 const StartConfig = require('../models/StartConfig');
 const Lead = require('../models/Lead');
-const SmartRemarketingService = require('./SmartRemarketingService');
 const messageUtils = require('../utils/messageUtils');
+const remarketingContinuoController = require('../controllers/remarketingContinuoController');
 
 class BotManager {
     constructor() {
@@ -234,14 +234,14 @@ async saveOrUpdateLead(botDoc, user) {
             
             console.log('Novo lead criado:', lead._id);
             
-            // Integração com o serviço de remarketing inteligente
-            try {
-                // Adiciona o novo lead às campanhas ativas
-                await SmartRemarketingService.onNewLead(lead);
-            } catch (remarketingError) {
-                console.error('Erro ao integrar lead com remarketing:', remarketingError);
-                // Não impede o fluxo principal se houver erro na integração
-            }
+           
+                try {
+                    console.log(`Agendando mensagens de remarketing contínuo para o novo lead ${lead._id}`);
+                    await remarketingContinuoController.scheduleMessagesForNewLead(lead);
+                } catch (error) {
+                    console.error('Erro ao agendar mensagens de remarketing contínuo:', error);
+                }
+          
             
             return lead;
         }

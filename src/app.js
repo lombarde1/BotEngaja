@@ -16,7 +16,11 @@ const welcomeRoutes = require('./routes/welcomeRoutes');
 const startRoutes = require('./routes/startRoutes');
 const leadRoutes = require('./routes/leadRoutes');
 const remarketingRoutes = require('./routes/remarketingRoutes');
-const smartRemarketingRoutes = require('./routes/smartRemarketingRoutes');
+const remarketingContinuoRoutes = require('./routes/remarketingContinuoRoutes');
+const SchedulerService = require('./services/SchedulerService');
+
+// Importar serviços que precisam ser inicializados na inicialização
+const BotManager = require('./services/BotManager');
 
 const app = express();
 
@@ -26,7 +30,9 @@ mongoose.connect('mongodb://darkvips:lombarde1@147.79.111.143:27017/botenagaja',
     useUnifiedTopology: true, 
     authSource: 'admin'
 })
-.then(() => console.log('MongoDB connected'))
+.then(() => {
+    console.log('MongoDB connected');
+})
 .catch(err => console.error('MongoDB connection error:', err));
 
 // Rate limiting
@@ -40,7 +46,7 @@ app.use(helmet()); // Segurança
 // Configuração detalhada do CORS
 app.use(cors({
   origin: function(origin, callback) {
-    console.log('Requisição origem:', origin);
+//   console.log('Requisição origem:', origin);
     callback(null, true); // Permite todas as origens por enquanto
   },
   credentials: true
@@ -71,7 +77,7 @@ app.use('/api/welcome', welcomeRoutes);
 app.use('/api/start', startRoutes);
 app.use('/api/leads', leadRoutes);
 app.use('/api/remarketing', remarketingRoutes);
-app.use('/api/smart-remarketing', smartRemarketingRoutes);
+app.use('/api/remarketing-continuo', remarketingContinuoRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -114,24 +120,33 @@ app.use((req, res) => {
 });
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
     console.info('SIGTERM signal received.');
     console.log('Closing HTTP server.');
     
     // Fecha o servidor HTTP
-    server.close(() => {
+    server.close(async () => {
         console.log('HTTP server closed.');
         
-        // Fecha conexão com MongoDB
-        mongoose.connection.close(false, () => {
+        try {
+            // Fecha conexões do Redis
+            // Fecha conexão com MongoDB
+            console.log('Fechando conexão MongoDB...');
+            await mongoose.connection.close(false);
             console.log('MongoDB connection closed.');
+            
             process.exit(0);
-        });
+        } catch (error) {
+            console.error('Erro ao fechar conexões:', error);
+            process.exit(1);
+        }
     });
 });
 
-const PORT = process.env.PORT || 8683;
-require('./services/BotManager');
+const PORT = process.env.PORT || 8710;
+
+// Note que não precisamos mais importar BotManager aqui, já que importamos no início do arquivo
+// require('./services/BotManager');
 
 const server = app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
