@@ -143,7 +143,7 @@ process.on('SIGTERM', async () => {
     });
 });
 
-const PORT = process.env.PORT || 8745;
+const PORT = process.env.PORT || 8726;
 
 // Note que não precisamos mais importar BotManager aqui, já que importamos no início do arquivo
 // require('./services/BotManager');
