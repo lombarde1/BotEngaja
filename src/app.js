@@ -25,7 +25,7 @@ const BotManager = require('./services/BotManager');
 const app = express();
 
 // Conexão com MongoDB
-mongoose.connect('mongodb://darkvips:lombarde1@147.79.111.143:27017/botenagaja', { 
+mongoose.connect('mongodb://botengaja:root@cpanel.higorlabs.site:1991/?tls=false', { 
     useNewUrlParser: true, 
     useUnifiedTopology: true, 
     authSource: 'admin'
