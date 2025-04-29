@@ -5,7 +5,7 @@ const Lead = require('./src/models/Lead');
 const SmartRemarketingCampaign = require('./src/models/SmartRemarketingCampaign');
 
 // Substitua com a string de conexão do seu banco MongoDB
-const MONGO_URI = 'mongodb://darkvips:lombarde1@147.79.111.143:27017/botenagaja';
+const MONGO_URI = 'mongodb://admin:root@cpanel.higorlabs.site:29084';
 
 // Função para verificar o progresso do lead em todas as campanhas
 async function checkLeadProgress(leadId) {

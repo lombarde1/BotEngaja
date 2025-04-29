@@ -15,7 +15,7 @@ async function createIndexes() {
         console.log('Iniciando criação de índices...');
         
         // Conecta ao MongoDB
-        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://darkvips:lombarde1@147.79.111.143:27017/botenagaja', { 
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://admin:root@cpanel.higorlabs.site:29084', { 
             useNewUrlParser: true, 
             useUnifiedTopology: true, 
             authSource: 'admin'
